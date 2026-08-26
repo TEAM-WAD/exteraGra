@@ -11,6 +11,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      GRADLE_OPTS: "-Xmx6144m -Xss12m -XX:+UseG1GC -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -42,12 +45,14 @@ jobs:
 
       - name: Build APK with Gradle
         run: |
-          ./gradlew assembleDebug \
+          ./gradlew assembleAfatDebug \
+            -PabiList=arm64-v8a \
             -PAPP_CENTER_HASH='"00000000-0000-0000-0000-000000000000"' \
             -PMAPS_V2_API='"abcdef1234567890abcdef1234567890"' \
             -PPLAYSERVICES_APP_ID='"dummy"' \
             -x test \
             -x lint \
+            -x lintVitalRelease \
             --no-daemon
 
       - name: Upload APK Artifact
