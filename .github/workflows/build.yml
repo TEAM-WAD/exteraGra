@@ -41,7 +41,14 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build APK with Gradle
-        run: ./gradlew assembleDebug -x test -x lint --no-daemon
+        run: |
+          ./gradlew assembleDebug \
+            -PAPP_CENTER_HASH='"00000000-0000-0000-0000-000000000000"' \
+            -PMAPS_V2_API='"abcdef1234567890abcdef1234567890"' \
+            -PPLAYSERVICES_APP_ID='"dummy"' \
+            -x test \
+            -x lint \
+            --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
