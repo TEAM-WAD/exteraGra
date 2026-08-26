@@ -1,65 +1,115 @@
-name: Fast exteraGram Build
+name: Build exteraGram APK
 
 on:
   push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      GRADLE_OPTS: "-Xmx6g -XX:+UseG1GC -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
-      APP_CENTER_HASH: '"00000000-0000-0000-0000-000000000000"'
-      MAPS_API_KEY: '"dummy"'
-      PLAYSERVICES_APP_ID: '"dummy"'
-
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      - name: Setup Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: 'zulu'
           java-version: '17'
           cache: 'gradle'
 
-      - name: Make gradlew Executable
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate API_KEYS & Configuration Files
+        run: |
+          # 1. إنشاء ملف API_KEYS الرئيسي بالقيم المطلوبة
+          cat << 'EOF' > API_KEYS
+          APP_ID = 6
+          APP_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
+          MAPS_V2_API = "abcdef1234567890abcdef1234567890"
+          SIGNING_KEY_PASSWORD = "password"
+          SIGNING_KEY_ALIAS = "alias"
+          SIGNING_KEY_STORE_PASSWORD = "password"
+          APP_CENTER_HASH = "00000000-0000-0000-0000-000000000000"
+          PLAYSERVICES_APP_ID = "dummy"
+          EOF
+
+          # نسخ الملف إلى مجلد TMessagesProj كاحتياط
+          cp API_KEYS TMessagesProj/API_KEYS || true
+
+          # 2. إضافة المتغيرات إلى gradle.properties كبديل إضافي
+          cat << 'EOF' >> gradle.properties
+          APP_ID=6
+          APP_HASH=eb06d4abfb49dc3eeb1aeb98ae0f581e
+          MAPS_V2_API=abcdef1234567890abcdef1234567890
+          SIGNING_KEY_PASSWORD=password
+          SIGNING_KEY_ALIAS=alias
+          SIGNING_KEY_STORE_PASSWORD=password
+          APP_CENTER_HASH=00000000-0000-0000-0000-000000000000
+          EOF
+
+          # 3. إنشاء ملف keystore وهمي للتوقيع إذا لم يكن موجوداً
+          mkdir -p TMessagesProj/config
+          if [ ! -f TMessagesProj/config/extera.jks ]; then
+            keytool -genkeypair -v \
+              -keystore TMessagesProj/config/extera.jks \
+              -alias alias \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass password \
+              -keypass password \
+              -dname "CN=extera, OU=extera, O=extera, L=City, S=State, C=US"
+          fi
+
+          # 4. إنشاء ملف google-services.json وهمي
+          if [ ! -f TMessagesProj/google-services.json ]; then
+            cat << 'EOF' > TMessagesProj/google-services.json
+            {
+              "project_info": {
+                "project_number": "1234567890",
+                "project_id": "exteragram-build",
+                "storage_bucket": "exteragram-build.appspot.com"
+              },
+              "client": [
+                {
+                  "client_info": {
+                    "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
+                    "android_client_info": {
+                      "package_name": "com.exteragram.messenger"
+                    }
+                  },
+                  "oauth_client": [],
+                  "api_key": [
+                    {
+                      "current_key": "dummy_key"
+                    }
+                  ],
+                  "services": {
+                    "appinvite_service": {
+                      "other_platform_oauth_client": []
+                    }
+                  }
+                }
+              ],
+              "configuration_version": "1"
+            }
+            EOF
+          fi
+
+      - name: Make Gradlew Executable
         run: chmod +x gradlew
 
-      - name: Inject Properties Files
-        run: |
-          cat <<EOF > local.properties
-          sdk.dir=/usr/local/lib/android/sdk
-          APP_CENTER_HASH="00000000-0000-0000-0000-000000000000"
-          MAPS_API_KEY="dummy"
-          PLAYSERVICES_APP_ID="dummy"
-          EOF
-
-          cat <<EOF >> gradle.properties
-          APP_CENTER_HASH="00000000-0000-0000-0000-000000000000"
-          MAPS_API_KEY="dummy"
-          PLAYSERVICES_APP_ID="dummy"
-          EOF
-
-      - name: Build APK (Arm64 Debug)
-        run: |
-          ./gradlew assembleDebug \
-            -PabiList=arm64-v8a \
-            -PAPP_CENTER_HASH="\"00000000-0000-0000-0000-000000000000\"" \
-            -PMAPS_API_KEY="\"dummy\"" \
-            -PPLAYSERVICES_APP_ID="\"dummy\"" \
-            -x test \
-            -x lint \
-            -x lintVitalRelease \
-            --no-daemon
+      - name: Build APK with Gradle
+        run: ./gradlew assembleAfatDebug --no-daemon --stacktrace
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: exteraGram-Arm64
-          path: '**/*.apk'
+          name: exteraGram-APK
+          path: TMessagesProj/build/outputs/apk/**/*.apk
