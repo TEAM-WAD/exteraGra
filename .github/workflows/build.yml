@@ -1,4 +1,4 @@
-name: Build exteraGra APK
+name: Build exteraGra
 
 on:
   workflow_dispatch:
@@ -28,15 +28,56 @@ jobs:
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools" \
-                     "platforms;android-33" \
-                     "build-tools;33.0.1" \
-                     "ndk;21.4.7075529" \
-                     "cmake;3.10.2"
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.1" \
+            "ndk;21.4.7075529"
+
+      - name: Install CMake 3.10.2
+        run: |
+          CMAKE_VERSION="3.10.2"
+          CMAKE_DIR="$ANDROID_HOME/cmake/$CMAKE_VERSION"
+
+          mkdir -p "$ANDROID_HOME/cmake"
+
+          curl -L \
+            --fail \
+            --retry 5 \
+            --retry-delay 3 \
+            -o /tmp/cmake.tar.gz \
+            "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz"
+
+          tar -xzf /tmp/cmake.tar.gz -C /tmp
+
+          rm -rf "$CMAKE_DIR"
+
+          mv "/tmp/cmake-${CMAKE_VERSION}-Linux-x86_64" "$CMAKE_DIR"
+
+          echo "$CMAKE_DIR/bin" >> "$GITHUB_PATH"
+
+          echo "CMake installed:"
+          "$CMAKE_DIR/bin/cmake" --version
+
+      - name: Verify Android toolchain
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "JAVA_HOME=$JAVA_HOME"
+
+          java -version
+          adb version
+
+          echo "NDK:"
+          ls -la "$ANDROID_HOME/ndk/21.4.7075529"
+
+          echo "CMake:"
+          cmake --version
 
       - name: Prepare API_KEYS
         run: |
-          cat > API_KEYS <<'EOF'
+          cat > API_KEYS <<EOF
           APP_ID=${{ secrets.TELEGRAM_APP_ID }}
           APP_HASH="${{ secrets.TELEGRAM_APP_HASH }}"
           MAPS_V2_API="${{ secrets.MAPS_V2_API }}"
@@ -46,6 +87,8 @@ jobs:
           APP_CENTER_HASH="${{ secrets.APP_CENTER_HASH }}"
           PLAYSERVICES_APP_ID="${{ secrets.PLAYSERVICES_APP_ID }}"
           EOF
+
+          cp API_KEYS TMessagesProj/API_KEYS
 
       - name: Prepare signing key
         run: |
@@ -68,7 +111,7 @@ jobs:
 
       - name: Prepare Google Services
         run: |
-          cat > TMessagesProj/google-services.json <<'EOF'
+          cat > TMessagesProj/google-services.json <<EOF
           {
             "project_info": {
               "project_number": "${{ secrets.GOOGLE_PROJECT_NUMBER }}",
@@ -79,7 +122,7 @@ jobs:
                 "client_info": {
                   "mobilesdk_app_id": "${{ secrets.GOOGLE_MOBILE_SDK_APP_ID }}",
                   "android_client_info": {
-                    "package_name": "com.exteragram.messenger"
+                    "package_name": "org.telegram.messenger"
                   }
                 },
                 "api_key": [
@@ -105,31 +148,30 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Check Gradle tasks
-        run: ./gradlew tasks --all --no-daemon
+      - name: Show available Afat tasks
+        run: |
+          ./gradlew tasks --all --no-daemon | grep -i "afat" || true
 
-      - name: Build APK
+      - name: Build Afat Release
         run: |
           ./gradlew assembleAfatRelease \
-            -PabiList=arm64-v8a \
-            -PAPP_CENTER_HASH="${APP_CENTER_HASH}" \
-            -PMAPS_V2_API="${MAPS_V2_API}" \
-            -PPLAYSERVICES_APP_ID="${PLAYSERVICES_APP_ID}" \
-            -x test \
-            -x lint \
             --no-daemon \
-            --stacktrace
+            --stacktrace \
+            -x test \
+            -x lint
 
       - name: Find APK
+        if: always()
         run: |
           echo "APK files:"
           find . -type f -name "*.apk" -print
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: exteraGra-Afat-Release
           path: |
-            **/build/outputs/apk/**/*.apk
-            **/build/outputs/apk/*.apk
+            TMessagesProj/build/outputs/apk/**/*.apk
+            TMessagesProj/build/outputs/apk/*.apk
           if-no-files-found: error
