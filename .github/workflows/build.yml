@@ -1,15 +1,11 @@
-name: Build exteraGra
+name: Build Test APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
 
 jobs:
   build:
-    name: Build Afat Release
+    name: Build Beta Test APK
     runs-on: ubuntu-22.04
 
     steps:
@@ -26,7 +22,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: |
           yes | sdkmanager --licenses >/dev/null || true
 
@@ -38,123 +34,69 @@ jobs:
 
       - name: Install CMake 3.10.2
         run: |
-          CMAKE_VERSION="3.10.2"
-          CMAKE_DIR="$ANDROID_HOME/cmake/$CMAKE_VERSION"
-
           mkdir -p "$ANDROID_HOME/cmake"
 
-          curl -L \
-            --fail \
-            --retry 5 \
-            --retry-delay 3 \
+          curl -L --fail --retry 5 \
             -o /tmp/cmake.tar.gz \
-            "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz"
+            "https://github.com/Kitware/CMake/releases/download/v3.10.2/cmake-3.10.2-Linux-x86_64.tar.gz"
 
           tar -xzf /tmp/cmake.tar.gz -C /tmp
 
-          rm -rf "$CMAKE_DIR"
+          rm -rf "$ANDROID_HOME/cmake/3.10.2"
 
-          mv "/tmp/cmake-${CMAKE_VERSION}-Linux-x86_64" "$CMAKE_DIR"
+          mv /tmp/cmake-3.10.2-Linux-x86_64 \
+             "$ANDROID_HOME/cmake/3.10.2"
 
-          echo "$CMAKE_DIR/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmake/3.10.2/bin" >> "$GITHUB_PATH"
 
-          echo "CMake installed:"
-          "$CMAKE_DIR/bin/cmake" --version
-
-      - name: Verify Android toolchain
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "JAVA_HOME=$JAVA_HOME"
-
-          java -version
-          adb version
-
-          echo "NDK:"
-          ls -la "$ANDROID_HOME/ndk/21.4.7075529"
-
-          echo "CMake:"
-          cmake --version
-
-      - name: Prepare API_KEYS
+      - name: Create API_KEYS
         run: |
           cat > API_KEYS <<EOF
           APP_ID=${{ secrets.TELEGRAM_APP_ID }}
           APP_HASH="${{ secrets.TELEGRAM_APP_HASH }}"
-          MAPS_V2_API="${{ secrets.MAPS_V2_API }}"
-          SIGNING_KEY_PASSWORD="${{ secrets.SIGNING_KEY_PASSWORD }}"
-          SIGNING_KEY_ALIAS="${{ secrets.SIGNING_KEY_ALIAS }}"
-          SIGNING_KEY_STORE_PASSWORD="${{ secrets.SIGNING_KEY_STORE_PASSWORD }}"
-          APP_CENTER_HASH="${{ secrets.APP_CENTER_HASH }}"
-          PLAYSERVICES_APP_ID="${{ secrets.PLAYSERVICES_APP_ID }}"
+          MAPS_V2_API="TEST_NO_MAPS_KEY"
+          SIGNING_KEY_PASSWORD="ExteraGraTest2026"
+          SIGNING_KEY_ALIAS="exteragra"
+          SIGNING_KEY_STORE_PASSWORD="ExteraGraTest2026"
           EOF
 
           cp API_KEYS TMessagesProj/API_KEYS
 
-      - name: Prepare signing key
+      - name: Create temporary signing key
         run: |
           mkdir -p TMessagesProj/config
 
-          if [ -n "${{ secrets.SIGNING_KEY_BASE64 }}" ]; then
-            echo "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > TMessagesProj/config/extera.jks
-          else
-            keytool -genkeypair \
-              -v \
-              -keystore TMessagesProj/config/extera.jks \
-              -alias "${{ secrets.SIGNING_KEY_ALIAS }}" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "${{ secrets.SIGNING_KEY_STORE_PASSWORD }}" \
-              -keypass "${{ secrets.SIGNING_KEY_PASSWORD }}" \
-              -dname "CN=exteraGra, OU=exteraGra, O=exteraGra, L=City, S=State, C=IQ"
-          fi
+          keytool -genkeypair \
+            -v \
+            -keystore TMessagesProj/config/extera.jks \
+            -alias exteragra \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass ExteraGraTest2026 \
+            -keypass ExteraGraTest2026 \
+            -dname "CN=exteraGra Test, OU=Test, O=exteraGra, C=IQ"
 
-      - name: Prepare Google Services
+      - name: Disable Google Services for test build
         run: |
-          cat > TMessagesProj/google-services.json <<EOF
-          {
-            "project_info": {
-              "project_number": "${{ secrets.GOOGLE_PROJECT_NUMBER }}",
-              "project_id": "${{ secrets.GOOGLE_PROJECT_ID }}"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "${{ secrets.GOOGLE_MOBILE_SDK_APP_ID }}",
-                  "android_client_info": {
-                    "package_name": "org.telegram.messenger"
-                  }
-                },
-                "api_key": [
-                  {
-                    "current_key": "${{ secrets.GOOGLE_API_KEY }}"
-                  }
-                ]
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
+          sed -i \
+            "/apply plugin: 'com.google.gms.google-services'/d" \
+            TMessagesProj/build.gradle
 
-      - name: Configure Gradle
-        run: |
-          cat >> gradle.properties <<'EOF'
-
-          org.gradle.jvmargs=-Xmx6144m -XX:+UseG1GC
-          android.enableR8.fullMode=false
-          kotlin.incremental=false
-          EOF
+          sed -i \
+            "/apply plugin: 'com.google.firebase.crashlytics'/d" \
+            TMessagesProj/build.gradle
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Show available Afat tasks
+      - name: Verify build task
         run: |
-          ./gradlew tasks --all --no-daemon | grep -i "afat" || true
+          ./gradlew tasks --all --no-daemon | grep -E "assembleBetaDebug|betaDebug" || true
 
-      - name: Build Afat Release
+      - name: Build APK
         run: |
-          ./gradlew assembleAfatRelease \
+          ./gradlew assembleBetaDebug \
             --no-daemon \
             --stacktrace \
             -x test \
@@ -170,7 +112,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: exteraGra-Afat-Release
+          name: exteraGra-Test-APK
           path: |
             TMessagesProj/build/outputs/apk/**/*.apk
             TMessagesProj/build/outputs/apk/*.apk
