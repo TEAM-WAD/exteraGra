@@ -25,91 +25,26 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Generate API_KEYS & Configuration Files
+      - name: Create API_KEYS File
         run: |
-          # 1. إنشاء ملف API_KEYS الرئيسي بالقيم المطلوبة
-          cat << 'EOF' > API_KEYS
-          APP_ID = 6
-          APP_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
-          MAPS_V2_API = "abcdef1234567890abcdef1234567890"
-          SIGNING_KEY_PASSWORD = "password"
-          SIGNING_KEY_ALIAS = "alias"
-          SIGNING_KEY_STORE_PASSWORD = "password"
-          APP_CENTER_HASH = "00000000-0000-0000-0000-000000000000"
-          PLAYSERVICES_APP_ID = "dummy"
-          EOF
-
-          # نسخ الملف إلى مجلد TMessagesProj كاحتياط
+          printf 'APP_ID=6\nAPP_HASH="eb06d4abfb49dc3eeb1aeb98ae0f581e"\nMAPS_V2_API="abcdef1234567890abcdef1234567890"\nSIGNING_KEY_PASSWORD="password"\nSIGNING_KEY_ALIAS="alias"\nSIGNING_KEY_STORE_PASSWORD="password"\nAPP_CENTER_HASH="00000000-0000-0000-0000-000000000000"\nPLAYSERVICES_APP_ID="dummy"\n' > API_KEYS
           cp API_KEYS TMessagesProj/API_KEYS || true
 
-          # 2. إضافة المتغيرات إلى gradle.properties كبديل إضافي
-          cat << 'EOF' >> gradle.properties
-          APP_ID=6
-          APP_HASH=eb06d4abfb49dc3eeb1aeb98ae0f581e
-          MAPS_V2_API=abcdef1234567890abcdef1234567890
-          SIGNING_KEY_PASSWORD=password
-          SIGNING_KEY_ALIAS=alias
-          SIGNING_KEY_STORE_PASSWORD=password
-          APP_CENTER_HASH=00000000-0000-0000-0000-000000000000
-          EOF
-
-          # 3. إنشاء ملف keystore وهمي للتوقيع إذا لم يكن موجوداً
+      - name: Create Dummy Configs
+        run: |
           mkdir -p TMessagesProj/config
-          if [ ! -f TMessagesProj/config/extera.jks ]; then
-            keytool -genkeypair -v \
-              -keystore TMessagesProj/config/extera.jks \
-              -alias alias \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass password \
-              -keypass password \
-              -dname "CN=extera, OU=extera, O=extera, L=City, S=State, C=US"
-          fi
-
-          # 4. إنشاء ملف google-services.json وهمي
-          if [ ! -f TMessagesProj/google-services.json ]; then
-            cat << 'EOF' > TMessagesProj/google-services.json
-            {
-              "project_info": {
-                "project_number": "1234567890",
-                "project_id": "exteragram-build",
-                "storage_bucket": "exteragram-build.appspot.com"
-              },
-              "client": [
-                {
-                  "client_info": {
-                    "mobilesdk_app_id": "1:1234567890:android:1234567890abcdef",
-                    "android_client_info": {
-                      "package_name": "com.exteragram.messenger"
-                    }
-                  },
-                  "oauth_client": [],
-                  "api_key": [
-                    {
-                      "current_key": "dummy_key"
-                    }
-                  ],
-                  "services": {
-                    "appinvite_service": {
-                      "other_platform_oauth_client": []
-                    }
-                  }
-                }
-              ],
-              "configuration_version": "1"
-            }
-            EOF
-          fi
+          keytool -genkeypair -v -keystore TMessagesProj/config/extera.jks -alias alias -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=extera, OU=extera, O=extera, L=City, S=State, C=US"
+          printf '{"project_info":{"project_number":"1234567890","project_id":"exteragram-build"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.exteragram.messenger"}},"api_key":[{"current_key":"dummy"}]}]}' > TMessagesProj/google-services.json
 
       - name: Make Gradlew Executable
         run: chmod +x gradlew
 
       - name: Build APK with Gradle
-        run: ./gradlew assembleAfatDebug --no-daemon --stacktrace
+        run: ./gradlew assembleAfatDebug --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: exteraGram-APK
-          path: TMessagesProj/build/outputs/apk/**/*.apk
+          path: '**/*.apk'
