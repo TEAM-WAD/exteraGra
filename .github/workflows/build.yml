@@ -1,21 +1,16 @@
-name: Build exteraGram APK
+name: Fast exteraGram Build
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      GRADLE_OPTS: "-Xmx7g -Xss64m -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dkotlin.compiler.execution.strategy=in-process"
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -28,43 +23,40 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Disable Problematic Kotlin Flags & Fix Properties
+      - name: Prepare Config & Secrets
         run: |
           printf 'APP_ID=6\nAPP_HASH="eb06d4abfb49dc3eeb1aeb98ae0f581e"\nMAPS_V2_API="abcdef1234567890abcdef1234567890"\nSIGNING_KEY_PASSWORD="password"\nSIGNING_KEY_ALIAS="alias"\nSIGNING_KEY_STORE_PASSWORD="password"\nAPP_CENTER_HASH="00000000-0000-0000-0000-000000000000"\nPLAYSERVICES_APP_ID="dummy"\n' > API_KEYS
           cp API_KEYS TMessagesProj/API_KEYS || true
 
-          cat << 'EOF' >> gradle.properties
-          android.enableR8.fullMode=false
-          android.useDexArchive=true
-          org.gradle.jvmargs=-Xmx7g -Xss64m -Dfile.encoding=UTF-8
-          kotlin.incremental=false
-          EOF
-
-      - name: Create Dummy Configs
-        run: |
           mkdir -p TMessagesProj/config
           rm -f TMessagesProj/config/extera.jks
           keytool -genkeypair -v -keystore TMessagesProj/config/extera.jks -alias alias -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=extera, OU=extera, O=extera, L=City, S=State, C=US"
           printf '{"project_info":{"project_number":"1234567890","project_id":"exteragram-build"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.exteragram.messenger"}},"api_key":[{"current_key":"dummy"}]}]}' > TMessagesProj/google-services.json
 
+          cat << 'EOF' >> gradle.properties
+          org.gradle.jvmargs=-Xmx6144m -XX:+UseG1GC
+          android.enableR8.fullMode=false
+          kotlin.incremental=false
+          EOF
+
       - name: Make Gradlew Executable
         run: chmod +x gradlew
 
-      - name: Build APK with Gradle
+      - name: Fast Assembly
         run: |
           ./gradlew assembleAfatDebug \
-            --no-daemon \
-            --no-configuration-cache \
             -PabiList=arm64-v8a \
             -PAPP_CENTER_HASH='"00000000-0000-0000-0000-000000000000"' \
             -PMAPS_V2_API='"abcdef1234567890abcdef1234567890"' \
             -PPLAYSERVICES_APP_ID='"dummy"' \
             -x test \
-            -x lint
+            -x lint \
+            -x externalNativeBuildAfatDebug \
+            --no-daemon
 
-      - name: Upload APK Artifact
+      - name: Save APK
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: exteraGram-APK
+          name: exteraGram-Fast-APK
           path: '**/*.apk'
