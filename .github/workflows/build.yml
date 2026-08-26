@@ -1,43 +1,31 @@
-name: Build Beta Test APK
+name: Build exteraGra APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:
-    name: Build Beta Test APK
+    name: Build Afat Release APK
     runs-on: ubuntu-22.04
 
     steps:
-
-      # ---------------------------------------------------------
-      # Checkout
-      # ---------------------------------------------------------
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
-
-      # ---------------------------------------------------------
-      # Java
-      # ---------------------------------------------------------
-      - name: Setup Java 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: '17'
           cache: gradle
 
-
-      # ---------------------------------------------------------
-      # Android SDK
-      # ---------------------------------------------------------
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-
-      # ---------------------------------------------------------
-      # Install required Android packages
-      # ---------------------------------------------------------
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
@@ -48,316 +36,260 @@ jobs:
             "build-tools;33.0.1" \
             "ndk;21.4.7075529"
 
-
-      # ---------------------------------------------------------
-      # CMake 3.10.2
-      # ---------------------------------------------------------
       - name: Install CMake 3.10.2
         run: |
-          set -e
-
-          rm -rf /tmp/cmake-3.10.2-Linux-x86_64
-          rm -f /tmp/cmake-3.10.2.tar.gz
-
-          curl -L \
-            --fail \
-            --retry 5 \
-            --retry-delay 3 \
-            -o /tmp/cmake-3.10.2.tar.gz \
-            "https://github.com/Kitware/CMake/releases/download/v3.10.2/cmake-3.10.2-Linux-x86_64.tar.gz"
-
-          tar -xzf /tmp/cmake-3.10.2.tar.gz -C /tmp
+          CMAKE_VERSION="3.10.2"
+          CMAKE_DIR="$ANDROID_HOME/cmake/$CMAKE_VERSION"
 
           mkdir -p "$ANDROID_HOME/cmake"
 
-          rm -rf "$ANDROID_HOME/cmake/3.10.2"
+          curl -L --fail --retry 5 --retry-delay 3 \
+            -o /tmp/cmake.tar.gz \
+            "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz"
 
-          mv \
-            /tmp/cmake-3.10.2-Linux-x86_64 \
-            "$ANDROID_HOME/cmake/3.10.2"
+          tar -xzf /tmp/cmake.tar.gz -C /tmp
 
-          echo "$ANDROID_HOME/cmake/3.10.2/bin" >> "$GITHUB_PATH"
+          rm -rf "$CMAKE_DIR"
+          mv "/tmp/cmake-${CMAKE_VERSION}-Linux-x86_64" "$CMAKE_DIR"
 
+          echo "$CMAKE_DIR/bin" >> "$GITHUB_PATH"
 
-      # ---------------------------------------------------------
-      # Verify toolchain
-      # ---------------------------------------------------------
+          "$CMAKE_DIR/bin/cmake" --version
+
       - name: Verify Android toolchain
         run: |
-          echo "Java:"
           java -version
-
-          echo
-          echo "CMake:"
+          adb version
           cmake --version
 
-          echo
-          echo "NDK:"
           test -d "$ANDROID_HOME/ndk/21.4.7075529"
-          echo "NDK 21.4.7075529 OK"
 
-          echo
-          echo "Android SDK:"
-          test -d "$ANDROID_HOME/platforms/android-33"
-          echo "Android 33 OK"
-
-
-      # ---------------------------------------------------------
-      # API KEYS
+      # ==========================================================
+      # Telegram API
+      # APP_ID  = 30357243
+      # APP_HASH = 9782c26101c502f026721b8e7993786c
       #
-      # APP_HASH MUST be quoted because build.gradle uses:
-      #
-      # buildConfigField 'String', 'APP_HASH',
-      # localProperties.getProperty("APP_HASH")
-      # ---------------------------------------------------------
+      # APP_HASH MUST remain quoted because Gradle uses it as
+      # a Java String BuildConfig field.
+      # ==========================================================
+
       - name: Prepare API_KEYS
         run: |
           cat > API_KEYS <<'EOF'
           APP_ID=30357243
           APP_HASH="9782c26101c502f026721b8e7993786c"
           MAPS_V2_API=""
-          SIGNING_KEY_PASSWORD=ExteraGraTest2026
-          SIGNING_KEY_ALIAS=exteragra
-          SIGNING_KEY_STORE_PASSWORD=ExteraGraTest2026
+          SIGNING_KEY_PASSWORD="ExteraBuild123"
+          SIGNING_KEY_ALIAS="extera"
+          SIGNING_KEY_STORE_PASSWORD="ExteraStore123"
           EOF
 
-          echo "API_KEYS prepared."
+          cp API_KEYS TMessagesProj/API_KEYS
 
+      # ==========================================================
+      # Temporary debug signing key
+      # No GitHub Secrets required.
+      # ==========================================================
 
-      # ---------------------------------------------------------
-      # Create temporary signing key
-      # ---------------------------------------------------------
-      - name: Prepare signing key
+      - name: Prepare temporary signing key
         run: |
-          set -e
-
           mkdir -p TMessagesProj/config
 
           rm -f TMessagesProj/config/extera.jks
 
-          keytool \
-            -genkeypair \
+          keytool -genkeypair \
             -v \
             -keystore TMessagesProj/config/extera.jks \
-            -alias exteragra \
+            -alias "extera" \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
             -storetype JKS \
-            -storepass ExteraGraTest2026 \
-            -keypass ExteraGraTest2026 \
-            -dname "CN=exteraGra Test, OU=Test, O=exteraGra, C=IQ"
+            -storepass "ExteraStore123" \
+            -keypass "ExteraBuild123" \
+            -dname "CN=exteraGra, OU=Build, O=exteraGra, L=Baghdad, S=Baghdad, C=IQ"
 
-          echo "Signing key created."
-
-
-      # ---------------------------------------------------------
-      # Verify signing key
-      # ---------------------------------------------------------
-      - name: Verify signing key
-        run: |
-          keytool \
-            -list \
+          keytool -list \
             -keystore TMessagesProj/config/extera.jks \
-            -storepass ExteraGraTest2026
+            -storepass "ExteraStore123"
 
-          echo "Signing key verified."
+      # ==========================================================
+      # Disable Google Services / Crashlytics plugins for CI.
+      # No google-services.json required.
+      # ==========================================================
 
-
-      # ---------------------------------------------------------
-      # Disable Google Services plugins for CI
-      #
-      # The repository currently applies both plugins directly
-      # inside TMessagesProj/build.gradle.
-      #
-      # This prevents the build from requiring
-      # google-services.json / Firebase configuration.
-      # ---------------------------------------------------------
-      - name: Disable Google Services plugins for test build
+      - name: Disable Google Services plugins
         run: |
           python3 <<'PY'
           from pathlib import Path
 
-          p = Path("TMessagesProj/build.gradle")
-          text = p.read_text()
+          path = Path("TMessagesProj/build.gradle")
+          text = path.read_text()
 
           text = text.replace(
-              "apply plugin: 'com.google.gms.google-services'\n",
-              ""
+              "apply plugin: 'com.google.gms.google-services'",
+              "// Google Services disabled for CI"
           )
 
           text = text.replace(
-              "apply plugin: 'com.google.firebase.crashlytics'\n",
-              ""
+              "apply plugin: 'com.google.firebase.crashlytics'",
+              "// Firebase Crashlytics disabled for CI"
           )
 
-          p.write_text(text)
-
-          print("Google Services plugins disabled for this CI build.")
+          path.write_text(text)
           PY
 
+          rm -f TMessagesProj/google-services.json
 
-      # ---------------------------------------------------------
-      # Fix problematic Android string resources
-      #
-      # Only resources that contain multiple non-positional
-      # formatting substitutions are marked formatted=false.
-      #
-      # This is done only in the CI workspace and does NOT modify
-      # the repository source permanently.
-      # ---------------------------------------------------------
+          echo "Google Services plugins disabled."
+
+      # ==========================================================
+      # Disable Maps API requirement.
+      # The project expects MAPS_V2_API, so an empty value is
+      # supplied instead of requiring a Maps secret.
+      # ==========================================================
+
+      - name: Configure Maps value
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("TMessagesProj/build.gradle")
+          text = path.read_text()
+
+          text = text.replace(
+              "resValue 'string', 'MAPS_V2_API', localProperties.getProperty(\"MAPS_V2_API\")",
+              "resValue 'string', 'MAPS_V2_API', ''"
+          )
+
+          path.write_text(text)
+          PY
+
+      # ==========================================================
+      # Fix Android XML string formatting.
+      # IMPORTANT:
+      # No nonlocal / nested function / changed variable.
+      # ==========================================================
+
       - name: Fix Android string resource formatting
         run: |
           python3 <<'PY'
           from pathlib import Path
           import re
 
-          root = Path("TMessagesProj/src/main")
+          roots = [
+              Path("TMessagesProj/src/main/res"),
+              Path("TMessagesProj/src/main/res-solar"),
+              Path("TMessagesProj/src/main/res-tabs"),
+          ]
 
-          changed = 0
+          fixed = 0
 
-          # Android printf-style substitutions.
-          # Ignore escaped %%.
-          pattern = re.compile(
-              r'%(?!%)(?:\d+\$)?[a-zA-Z]'
-          )
+          for root in roots:
+              if not root.exists():
+                  continue
 
-          for path in root.rglob("strings.xml"):
-              text = path.read_text(encoding="utf-8")
+              for path in root.rglob("strings.xml"):
+                  try:
+                      text = path.read_text(encoding="utf-8")
+                  except Exception:
+                      continue
 
-              def fix_string(match):
-                  nonlocal changed
+                  old = text
 
-                  opening = match.group(1)
-                  name = match.group(2)
-                  attrs = match.group(3)
-                  body = match.group(4)
-                  closing = match.group(5)
+                  def fix_string(match):
+                      attrs = match.group(1)
+                      body = match.group(2)
 
-                  substitutions = pattern.findall(body)
+                      if "%1$" in body or "%2$" in body or "%3$" in body or "%4$" in body:
+                          if 'formatted="false"' not in attrs:
+                              attrs = attrs.rstrip() + ' formatted="false"'
 
-                  # Only handle strings with more than one
-                  # non-positional substitution.
-                  if len(substitutions) > 1:
-                      positional = re.findall(
-                          r'%(\d+)\$[a-zA-Z]',
-                          body
-                      )
+                      return "<string" + attrs + ">" + body + "</string>"
 
-                      if len(positional) == 0:
-                          if 'formatted=' not in attrs:
-                              changed += 1
+                  text = re.sub(
+                      r"<string([^>]*)>(.*?)</string>",
+                      fix_string,
+                      text,
+                      flags=re.DOTALL
+                  )
 
-                              if attrs.strip():
-                                  attrs = attrs.rstrip() + ' formatted="false"'
-                              else:
-                                  attrs = ' formatted="false"'
+                  if text != old:
+                      path.write_text(text, encoding="utf-8")
+                      fixed += 1
 
-                              return (
-                                  opening +
-                                  name +
-                                  attrs +
-                                  ">" +
-                                  body +
-                                  closing
-                              )
-
-                  return match.group(0)
-
-              # XML string elements.
-              regex = re.compile(
-                  r'(<string\s+name="([^"]+)"([^>]*)>)'
-                  r'(.*?)'
-                  r'(</string>)',
-                  re.DOTALL
-              )
-
-              new_text = regex.sub(
-                  lambda m: fix_string(
-                      type("M", (), {
-                          "group": lambda self, n: {
-                              1: m.group(1),
-                              2: m.group(2),
-                              3: m.group(3),
-                              4: m.group(4),
-                              5: m.group(5)
-                          }[n]
-                      })()
-                  ),
-                  text
-              )
-
-              if new_text != text:
-                  path.write_text(new_text, encoding="utf-8")
-
-          print(f"Fixed {changed} problematic string resources.")
+          print("XML files fixed:", fixed)
           PY
 
+      # ==========================================================
+      # Gradle configuration
+      # ==========================================================
 
-      # ---------------------------------------------------------
-      # Make Gradle executable
-      # ---------------------------------------------------------
-      - name: Prepare Gradle
+      - name: Configure Gradle
         run: |
-          chmod +x ./gradlew
+          cat >> gradle.properties <<'EOF'
 
+          org.gradle.jvmargs=-Xmx6144m -XX:+UseG1GC
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.caching=true
+          android.enableR8.fullMode=false
+          kotlin.incremental=false
+          EOF
 
-      # ---------------------------------------------------------
-      # Clean build
-      # ---------------------------------------------------------
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Show Gradle version
+        run: |
+          ./gradlew --version
+
       - name: Clean project
         run: |
-          ./gradlew clean \
-            --no-daemon \
-            --stacktrace
+          ./gradlew clean --no-daemon --stacktrace
 
-
-      # ---------------------------------------------------------
-      # Verify Beta task
-      # ---------------------------------------------------------
-      - name: Verify Beta build task
+      - name: Verify Afat Release task
         run: |
-          ./gradlew tasks --all --no-daemon | grep -E \
-            "assembleBetaDebug|compileBetaDebugJavaWithJavac" \
-            || true
+          ./gradlew tasks --all --no-daemon | grep -i "assembleAfatRelease"
 
+      # ==========================================================
+      # BUILD
+      # ==========================================================
 
-      # ---------------------------------------------------------
-      # Build Beta Debug APK
-      # ---------------------------------------------------------
-      - name: Build Beta Debug APK
+      - name: Build Afat Release APK
         run: |
-          ./gradlew assembleBetaDebug \
+          ./gradlew assembleAfatRelease \
             --no-daemon \
             --stacktrace \
-            --info
+            --info \
+            -x test \
+            -x lint
 
+      # ==========================================================
+      # Locate APK
+      # ==========================================================
 
-      # ---------------------------------------------------------
-      # Find generated APK
-      # ---------------------------------------------------------
       - name: Locate APK
         if: always()
         run: |
-          echo "===================================="
+          echo "======================================"
           echo "Generated APK files"
-          echo "===================================="
+          echo "======================================"
 
-          find TMessagesProj/build/outputs \
+          find TMessagesProj/build \
             -type f \
-            -name "*.apk" \
-            -print \
-            2>/dev/null || true
+            \( -name "*.apk" -o -name "*.aab" \) \
+            -print || true
 
-
-      # ---------------------------------------------------------
+      # ==========================================================
       # Upload APK
-      # ---------------------------------------------------------
-      - name: Upload Beta APK
+      # ==========================================================
+
+      - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: exteraGra-Beta-Test-APK
+          name: exteraGra-Afat-Release
           path: |
             TMessagesProj/build/outputs/apk/**/*.apk
             TMessagesProj/build/outputs/apk/*.apk
