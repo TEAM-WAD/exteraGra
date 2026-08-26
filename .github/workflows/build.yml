@@ -45,10 +45,9 @@ jobs:
 
       - name: Build APK with Gradle
         run: |
-          ./gradlew assembleAfatDebug \
+          ./gradlew :TMessagesProj:assembleDebug \
             --no-configuration-cache \
             --no-daemon \
-            -PabiList=arm64-v8a \
             -PAPP_CENTER_HASH='"00000000-0000-0000-0000-000000000000"' \
             -PMAPS_V2_API='"abcdef1234567890abcdef1234567890"' \
             -PPLAYSERVICES_APP_ID='"dummy"' \
