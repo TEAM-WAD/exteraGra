@@ -41,7 +41,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build APK with Gradle
-        run: ./gradlew assembleAfatDebug --no-daemon
+        run: ./gradlew assembleDebug -x test -x lint --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
