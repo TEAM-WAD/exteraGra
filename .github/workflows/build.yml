@@ -1,62 +1,135 @@
-name: Fast exteraGram Build
+name: Build exteraGra APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build Afat Release
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: zulu
           java-version: '17'
-          cache: 'gradle'
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Prepare Config & Secrets
+      - name: Install Android SDK packages
         run: |
-          printf 'APP_ID=6\nAPP_HASH="eb06d4abfb49dc3eeb1aeb98ae0f581e"\nMAPS_V2_API="abcdef1234567890abcdef1234567890"\nSIGNING_KEY_PASSWORD="password"\nSIGNING_KEY_ALIAS="alias"\nSIGNING_KEY_STORE_PASSWORD="password"\nAPP_CENTER_HASH="00000000-0000-0000-0000-000000000000"\nPLAYSERVICES_APP_ID="dummy"\n' > API_KEYS
-          cp API_KEYS TMessagesProj/API_KEYS || true
+          sdkmanager "platform-tools" \
+                     "platforms;android-33" \
+                     "build-tools;33.0.1" \
+                     "ndk;21.4.7075529" \
+                     "cmake;3.10.2"
 
+      - name: Prepare API_KEYS
+        run: |
+          cat > API_KEYS <<'EOF'
+          APP_ID=${{ secrets.TELEGRAM_APP_ID }}
+          APP_HASH="${{ secrets.TELEGRAM_APP_HASH }}"
+          MAPS_V2_API="${{ secrets.MAPS_V2_API }}"
+          SIGNING_KEY_PASSWORD="${{ secrets.SIGNING_KEY_PASSWORD }}"
+          SIGNING_KEY_ALIAS="${{ secrets.SIGNING_KEY_ALIAS }}"
+          SIGNING_KEY_STORE_PASSWORD="${{ secrets.SIGNING_KEY_STORE_PASSWORD }}"
+          APP_CENTER_HASH="${{ secrets.APP_CENTER_HASH }}"
+          PLAYSERVICES_APP_ID="${{ secrets.PLAYSERVICES_APP_ID }}"
+          EOF
+
+      - name: Prepare signing key
+        run: |
           mkdir -p TMessagesProj/config
-          rm -f TMessagesProj/config/extera.jks
-          keytool -genkeypair -v -keystore TMessagesProj/config/extera.jks -alias alias -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=extera, OU=extera, O=extera, L=City, S=State, C=US"
-          printf '{"project_info":{"project_number":"1234567890","project_id":"exteragram-build"},"client":[{"client_info":{"mobilesdk_app_id":"1:1234567890:android:1234567890abcdef","android_client_info":{"package_name":"com.exteragram.messenger"}},"api_key":[{"current_key":"dummy"}]}]}' > TMessagesProj/google-services.json
 
-          cat << 'EOF' >> gradle.properties
+          if [ -n "${{ secrets.SIGNING_KEY_BASE64 }}" ]; then
+            echo "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > TMessagesProj/config/extera.jks
+          else
+            keytool -genkeypair \
+              -v \
+              -keystore TMessagesProj/config/extera.jks \
+              -alias "${{ secrets.SIGNING_KEY_ALIAS }}" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "${{ secrets.SIGNING_KEY_STORE_PASSWORD }}" \
+              -keypass "${{ secrets.SIGNING_KEY_PASSWORD }}" \
+              -dname "CN=exteraGra, OU=exteraGra, O=exteraGra, L=City, S=State, C=IQ"
+          fi
+
+      - name: Prepare Google Services
+        run: |
+          cat > TMessagesProj/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "${{ secrets.GOOGLE_PROJECT_NUMBER }}",
+              "project_id": "${{ secrets.GOOGLE_PROJECT_ID }}"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "${{ secrets.GOOGLE_MOBILE_SDK_APP_ID }}",
+                  "android_client_info": {
+                    "package_name": "com.exteragram.messenger"
+                  }
+                },
+                "api_key": [
+                  {
+                    "current_key": "${{ secrets.GOOGLE_API_KEY }}"
+                  }
+                ]
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
+      - name: Configure Gradle
+        run: |
+          cat >> gradle.properties <<'EOF'
+
           org.gradle.jvmargs=-Xmx6144m -XX:+UseG1GC
           android.enableR8.fullMode=false
           kotlin.incremental=false
           EOF
 
-      - name: Make Gradlew Executable
-        run: chmod +x gradlew
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
 
-      - name: Fast Assembly
+      - name: Check Gradle tasks
+        run: ./gradlew tasks --all --no-daemon
+
+      - name: Build APK
         run: |
-          ./gradlew assembleAfatDebug \
+          ./gradlew assembleAfatRelease \
             -PabiList=arm64-v8a \
-            -PAPP_CENTER_HASH='"00000000-0000-0000-0000-000000000000"' \
-            -PMAPS_V2_API='"abcdef1234567890abcdef1234567890"' \
-            -PPLAYSERVICES_APP_ID='"dummy"' \
+            -PAPP_CENTER_HASH="${APP_CENTER_HASH}" \
+            -PMAPS_V2_API="${MAPS_V2_API}" \
+            -PPLAYSERVICES_APP_ID="${PLAYSERVICES_APP_ID}" \
             -x test \
             -x lint \
-            -x externalNativeBuildAfatDebug \
-            --no-daemon
+            --no-daemon \
+            --stacktrace
 
-      - name: Save APK
+      - name: Find APK
+        run: |
+          echo "APK files:"
+          find . -type f -name "*.apk" -print
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: exteraGram-Fast-APK
-          path: '**/*.apk'
+          name: exteraGra-Afat-Release
+          path: |
+            **/build/outputs/apk/**/*.apk
+            **/build/outputs/apk/*.apk
+          if-no-files-found: error
